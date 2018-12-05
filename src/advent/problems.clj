@@ -2,7 +2,8 @@
   (:require [missing.core :as miss]
             [clojure.java.io :as io]
             [clojure.string :as strings]
-            [clojure.set :as sets]))
+            [clojure.set :as sets])
+  (:import (java.util UUID)))
 
 (defmacro defproblem [symbol & body]
   `(defn ~symbol []
@@ -22,6 +23,15 @@
                  #{}
                  coll)]
     (if (set? result) nil result)))
+
+(defn partition-with
+  ([f coll]
+   (let [ret (volatile! 0)]
+     (partition-by
+       (fn [item]
+         (if (f item)
+           (vswap! ret inc)
+           @ret)) coll))))
 
 (defproblem problem1
   (->> (slurp (io/file (io/resource "p1.txt")))
@@ -78,3 +88,44 @@
          (miss/filter-vals #(> % 1))
          (keys)
          (count))))
+
+
+(defproblem problem6
+  (letfn [(parse [s]
+            (zipmap
+              [:id :left :top :width :height]
+              (map #(Integer/parseInt %) (rest (re-find #"#(\d+)\s+@\s+(\d+),(\d+):\s+(\d+)x(\d+)" s)))))
+          (coords [{:keys [left top width height]}]
+            (for [x (range left (+ width left))
+                  y (range top (+ top height))]
+              [x y]))]
+    (let [claims (->> (slurp (io/file (io/resource "p3.txt")))
+                      (strings/split-lines)
+                      (map parse))
+          table  (->> claims
+                      (mapcat (fn [claim] (map vector (repeat claim) (coords claim))))
+                      (reduce (fn [agg [{:keys [id]} coord]] (update agg coord (fnil conj #{}) id)) {}))]
+      (letfn [(exclusive? [claim] (every? (fn [coord] (= 1 (count (get table coord)))) (coords claim)))]
+        (miss/find-first exclusive? claims)))))
+
+
+(defproblem problem7
+  (letfn [(parse [s]
+            (merge (->> (rest (re-find #"^\[(\d+)-(\d+)-(\d+)\s+(\d+):(\d+)\]" s))
+                        (map #(Long/parseLong %))
+                        (zipmap [:year :month :day :hour :minute]))
+                   (->> (rest (re-find #"#(\d+)" s))
+                        (map #(Long/parseLong %))
+                        (zipmap [:guard]))
+                   (->> (rest (re-find #"(asleep|wakes|begins)" s))
+                        (map keyword)
+                        (zipmap [:action]))))]
+    (let [shifts
+          (->> (slurp (io/file (io/resource "p4.txt")))
+               (strings/split-lines)
+               (map parse)
+               (sort-by (juxt :year :month :day :hour :minute))
+               (partition-with #(= (:action %) :begins))
+               (map #(let [guard (:guard (first %))]
+                       (map (fn [x] (assoc x :guard guard)) %))))]
+      )))
